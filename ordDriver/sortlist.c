@@ -48,8 +48,8 @@ struct task_struct;
 
 
 /* GLOBAL */
-static char msg[BUFFER_LENGTH];
-static char *msg_p;
+static int msg[BUFFER_LENGTH];
+static int *msg_p;
 int memory_major = 0;
 int bytes_operated = 0;
 /* Valor major igual a zero quando for alocar um major dinamicamente */
@@ -67,13 +67,17 @@ struct my_dev {
 	struct class *class;
 	struct device *device;
 } *temp_dev;
-//Definição de um nó da lista ligada
+
+//----------------------------------------------------------------------------------------------
+//LINKED LIST
 struct stlista {
-        char data;
-        struct list_head milista;
+        int value;
+        struct list_head list_H;
 };
-//Definicao da lista duplamente ligada
-LIST_HEAD(listaDupla) ;
+//INITIALIZATION
+LIST_HEAD(my_list);
+
+//----------------------------------------------------------------------------------------------
 
 /* Declaração das funções SORTLIST.c  */
 static int temp_open(struct inode *inode, struct file *filp);
@@ -193,15 +197,21 @@ static int temp_release(struct inode *inode, struct file *filp) {
 }
 
 static ssize_t temp_read(struct file *filp,  char *buf, size_t count, loff_t *f_pos) { 
-  printk(KERN_DEBUG "[SORTLIST]: Executou o read %s\n\n", msg_p);
+  //printk(KERN_DEBUG "[SORTLIST]: Executou o read %n\n\n", msg_p);
 
   if(*msg_p == '\0') return 0;
   bytes_operated = 0;
   while(count && *msg_p){
     // Escrever um valor no espaco do usuario
-    put_user(*(msg_p++), buf++);
-    count--;
-    bytes_operated++;
+	struct stlista *list;
+	list = kmalloc(sizeof(struct stlista *),GFP_KERNEL);
+
+	list_for_each_entry(list, &my_list, list_H) {
+		put_user(list->value, buf++);
+    	count--;
+	    bytes_operated++;
+		printk(KERN_INFO "READ = %d\n", list->value);
+	}
   }
   
   return bytes_operated;
@@ -216,9 +226,20 @@ static ssize_t temp_write( struct file *filp, const char *buf,size_t count, loff
   if(copy_from_user(msg_p, buf, count)){
     return -EINVAL;
   }else{
-    sort(msg_p, count, sizeof(char), &compare, NULL);
+    //sort(msg_p, count, sizeof(char), &compare, NULL);
+
+	struct stlista *list;
+	list = kmalloc(sizeof(struct stlista *),GFP_KERNEL);
+
+	list->value = *msg_p;
+
+	list_add(&list->list_H,&my_list);
+
+	list_for_each_entry(list, &my_list, list_H) {
+		printk(KERN_INFO "val = %d\n", list->value);
+	}
     
-    printk(KERN_DEBUG "[SORTLIST]: ordenacao,  msg: %s\n", msg_p); 
+    //printk(KERN_DEBUG "[SORTLIST]: ordenacao,  msg: %s\n", msg_p); 
     return count;
   }
 }
