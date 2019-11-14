@@ -48,10 +48,14 @@ struct task_struct;
 
 
 /* GLOBAL */
-static int msg[BUFFER_LENGTH];
+//static char msg[MAX_DSIZE];
 static int *msg_p;
+static int w_pos;
+static int r_pos;
+int SIZE = 0;
 int qtdNo = 0;
 int memory_major = 0;
+int all_count = 0;
 int bytes_operated = 0;
 /* Valor major igual a zero quando for alocar um major dinamicamente */
 int major=0;
@@ -73,6 +77,8 @@ struct my_dev {
 //LINKED LIST
 struct stlista {
 	int value;
+	int count_len;
+	char c[BUFFER_LENGTH];
 	struct list_head list_H;
 };
 //INITIALIZATION
@@ -189,7 +195,6 @@ void temp_exit(void) {
 
 static int temp_open(struct inode *inode, struct file *filp) {
 	printk(KERN_DEBUG "[SORTLIST]: Aberto");
-	msg_p = msg;
 	return SUCCESS;
 }
 static int temp_release(struct inode *inode, struct file *filp) {
@@ -199,122 +204,141 @@ static int temp_release(struct inode *inode, struct file *filp) {
 
 static ssize_t temp_read(struct file *filp,  char *buf, size_t count, loff_t *f_pos) { 
   //printk(KERN_DEBUG "[SORTLIST]: Executou o read %n\n\n", msg_p);
-
-	if(*msg_p == '\0') return 0;
-	bytes_operated = 0;
+	int rv=0;
+	int len = 0;
+	char msg[MAX_DSIZE];
+	if (*f_pos >= SIZE)
+		return rv;
 	if (down_interruptible (&temp_dev->sem))//Inicio da regiao critica
-	return -ERESTARTSYS;
-	while(count && *msg_p){
-    // Escrever um valor no espaco do usuario
-		struct stlista *list;
-		list = kmalloc(sizeof(struct stlista *),GFP_KERNEL);
+		return -ERESTARTSYS;		
+	if (*f_pos + count > MAX_DSIZE)//Verifica se ainda tem dados para ler
+		count = MAX_DSIZE - *f_pos;//Ajusta count 
 
-		list_for_each_entry(list, &my_list, list_H) {
-			printk(KERN_INFO "READ = %d\n", list->value);
+	printk(KERN_INFO "READ: ");
+	struct stlista *list = kmalloc(sizeof(struct stlista),GFP_KERNEL);
+	list_for_each_entry(list, &my_list, list_H) {
+		int i = 0;
+		char c[strlen(list->c)];
+		c[i] = list->c[i];
+		while(c[i] != '\0'){
+			i++;
+			c[i] = list->c[i];
 		}
-
-		put_user(list->value, buf);
-		count--;
-		bytes_operated++;
-		up (&temp_dev->sem);
+		strcat(msg, c);
+		strcat(msg, " ");
+		len+=strlen(c);
+		len+=strlen(" ");
+		printk(KERN_INFO "READ 1: %s", c);
 	}
 
-	return bytes_operated;
+	if (copy_to_user (buf, msg, len)) {
+		rv = -EFAULT;
+		goto wrap_up;
+	}
+
+	*f_pos+=len;
+	up (&temp_dev->sem);
+	return len;
+	wrap_up:
+	up (&temp_dev->sem);
+	return rv;
 }
 
 static ssize_t temp_write( struct file *filp, const char *buf,size_t count, loff_t *pos) {  
 	printk(KERN_DEBUG "[SORTLIST]: Executou o write");
 
-	bytes_operated = 0;
-
 	unsigned long long res;
-
-	//memset(msg_p, 0, sizeof(char)* BUFFER_LENGTH);
 
 	//DOWN no semaforo
 	if (down_interruptible (&temp_dev->sem))
 		return -ERESTARTSYS;
 	//regiao critica
-	if(kstrtoull_from_user(buf, count, 10, &res)){
+	if(kstrtoull_from_user(buf, count, 10, &res))
 		return -EINVAL;
-	}else{
-	//fim da regiao critica
-		up (&temp_dev->sem);
 
-		struct stlista *list = kmalloc(sizeof(struct stlista),GFP_KERNEL);
-		struct stlista *listNEW = kmalloc(sizeof(struct stlista),GFP_KERNEL);
+	up (&temp_dev->sem);
 
-		listNEW->value = (int)res;
+	struct stlista *list = kmalloc(sizeof(struct stlista),GFP_KERNEL);
+	struct stlista *listNEW = kmalloc(sizeof(struct stlista),GFP_KERNEL);
 
-		int i = 1;
+	listNEW->value = (int)res;
 
+	char str[BUFFER_LENGTH];
+	sprintf (str, "%d\0", (int)res);
+	strcpy(listNEW->c, str);
+
+	int i = 1;
+
+	if (qtdNo == 0){
 		INIT_LIST_HEAD(&listNEW->list_H);
-
-		if (qtdNo == 0)
-		{
-			list_add(&listNEW->list_H,&my_list);
-		}
-		else
-			list_for_each_entry(list, &my_list, list_H) {
-				printk(KERN_INFO "VALOR DE I: %d e VALOR DE QTDNO: %d", i, qtdNo);
-				//FISRT
-				if (i == 1)
+		list_add(&listNEW->list_H,&my_list);
+	}	
+	else{
+		list_for_each_entry(list, &my_list, list_H) {
+			printk(KERN_INFO "VALOR DE I: %d e VALOR DE QTDNO: %d", i, qtdNo);
+			//FISRT
+			if (i == 1)
+			{
+				printk(KERN_INFO "AQUI 01");
+				if ((int)res <= list->value)
 				{
-					printk(KERN_INFO "AQUI 01");
-					if ((int)res <= list->value)
-					{
-						printk(KERN_INFO "AQUI1");
-						list_add(&listNEW->list_H,&my_list);
-						//printk(KERN_INFO "val = %d\n", list->value);
-						break;
-					}
+					printk(KERN_INFO "AQUI1");
+					list_add(&listNEW->list_H,&my_list);
+					//printk(KERN_INFO "val = %d\n", list->value);
+					break;
 				}
-				//END
-				else if (i == qtdNo)
+			}
+			//END
+			else if (i == qtdNo)
+			{
+				printk(KERN_INFO "AQUI 02");
+				if ((int)res >= list->value)
 				{
-					printk(KERN_INFO "AQUI 02");
-					if ((int)res >= list->value)
-					{
-						printk(KERN_INFO "AQUI2");
-						list_add_tail(&listNEW->list_H,&my_list);
-						break;
-					}
-					else{
-						printk(KERN_INFO "AQUI3");
-						list_add_tail(&listNEW->list_H,&list->list_H);
-						//printk(KERN_INFO "val = %d\n", list->value);
-						break;
-					}
+					printk(KERN_INFO "AQUI2");
+					list_add_tail(&listNEW->list_H,&my_list);
+					break;
 				}
-				//MID
-				else if ((int)res <= list->value)
-				{
-					printk(KERN_INFO "AQUI4");
-					//listNEW->next aponta para o listAtual;
-					//listNEW->list_H.next = list;
-					//listNEW->prev aponta para o listAnterio;
-					//listNEW->list_H.prev = list->list_H->prev->list_H;
-					//listanterio->prox aponta para o listNEW;
-					//list->list_H.prev->list_H.prox = listNEW->list_H;
-					//listAtual->prev aponta para o listNEW;
-					//ist->list_H.prev = listNEW->list_H;
+				else{
+					printk(KERN_INFO "AQUI3");
 					list_add_tail(&listNEW->list_H,&list->list_H);
 					//printk(KERN_INFO "val = %d\n", list->value);
 					break;
 				}
-				i++;
 			}
-
-		list_for_each_entry(list, &my_list, list_H) {
-			printk(KERN_INFO "val = %d\n", list->value);
+			//MID
+			else if ((int)res <= list->value)
+			{
+				printk(KERN_INFO "AQUI4");
+				//listNEW->next aponta para o listAtual;
+				//listNEW->list_H.next = list;
+				//listNEW->prev aponta para o listAnterio;
+				//listNEW->list_H.prev = list->list_H->prev->list_H;
+				//listanterio->prox aponta para o listNEW;
+				//list->list_H.prev->list_H.prox = listNEW->list_H;
+				//listAtual->prev aponta para o listNEW;
+				//ist->list_H.prev = listNEW->list_H;
+				list_add_tail(&listNEW->list_H,&list->list_H);
+				//printk(KERN_INFO "val = %d\n", list->value);
+				break;
+			}
+			i++;
 		}
-
-		qtdNo++;
-		*pos+=count;
-    //printk(KERN_DEBUG "[SORTLIST]: ordenacao,  msg: %s\n", msg_p); 
-		return count;
-	}
+		list_for_each_entry(list, &my_list, list_H) {
+			// msg[w_pos] = list->value;
+			// lenght[w_pos] = list->count_len;
+			printk(KERN_INFO "val = %d\n", list->value);
+			//printk(KERN_INFO "CARACTERE = %s\n", list->c);
+			printk(KERN_INFO "SIZE = %d\n", strlen(list->c));
+			// w_pos++;
+		}
+	}	
+	qtdNo++;
+	SIZE+=strlen(listNEW->c);
+	SIZE+=strlen(" ");
+	all_count+=count;
+	return SIZE;
 }
+
 
 // static int compare(const void *a, const void *b){
 // 	char ca = *(const char*)(a);
