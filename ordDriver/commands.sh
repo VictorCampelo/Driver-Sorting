@@ -48,26 +48,22 @@ ls -l /dev | grep $major | grep $1
 #echo "[CREATE]: mknod /dev/$1 --mode=$modo c $major 0  \n"
 #mknod /dev/$1 --mode=$mode c $major 0
 
-# echo -n 3>/dev/sortlist
+echo -n 3 >/dev/sortlist
 
-# dmesg | tail -1
+echo -n 1 >/dev/sortlist
 
-# echo -n 1>/dev/sortlist
+echo -n 5 >/dev/sortlist
 
-# dmesg | tail -1
+echo -n 7 >/dev/sortlist
 
-# echo -n 5>/dev/sortlist
+echo -n 100 >/dev/sortlist
 
-# dmesg | tail -1
+echo -n 44 >/dev/sortlist
 
-# echo -n 7>/dev/sortlist
+echo -n 4 >/dev/sortlist
 
-# dmesg | tail -1
+dmesg | tail -10
 
-# echo -n 4>/dev/sortlist
+cat /dev/sortlist
 
-# dmesg | tail -1
-
-# cat /dev/sortlist
-
-# dmesg | tail -10
+dmesg | tail -10
