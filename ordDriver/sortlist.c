@@ -1,5 +1,5 @@
 /*----------------------------------------------------------------------------*/
-/* File: tem.c                                                             */
+/* File: sortlist.c                                                             */
 /* Date: 12/11/19                                                           */
 /* Author: Victor Campelo                                                       */
 /* Version: 0.1                                                               */
@@ -18,105 +18,89 @@
 #include <linux/proc_fs.h>
 #include <linux/fcntl.h>
 #include <linux/aio.h>
-
 #include <linux/kernel.h> /* printk() */
 #include <linux/fs.h> /* everything... */
 #include <linux/errno.h> /* error codes */
 #include <linux/types.h> /* size_t */
 #include <linux/proc_fs.h>
 #include <linux/fcntl.h> /* O_ACCMODE */
-//#include <asm/uaccess.h> /* copy_from/to_user */
 #include <linux/sort.h> /* sort */
 #include <linux/security.h>
-
-#include <linux/uaccess.h>
-
+#include <linux/uaccess.h> /* copy_from/to_user */
 #include <linux/ioctl.h>
 #include <linux/cdev.h>
 #include <linux/device.h>
-//Macros utilizadas para especificar informações relacionadas ao modulo
+//MACROS: INFORMATIONS ABOUT MODULE
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Joao Victor Campelo do Vale");
 MODULE_DESCRIPTION("A module to ordenate a list of number");
-
-struct task_struct;
 
 #define SUCCESS 0
 #define DEVICE_NAME "sortlist"
 #define BUFFER_LENGTH 10
 #define MAX_DSIZE	3071
 
-
 /* GLOBAL */
-//static char msg[MAX_DSIZE];
-static int *msg_p;
-static int w_pos;
-static int r_pos;
 int SIZE = 0;
 int qtdNo = 0;
 int memory_major = 0;
-int all_count = 0;
 int bytes_operated = 0;
-/* Valor major igual a zero quando for alocar um major dinamicamente */
+/* SET MAJOR NUMBER TO 0 WHEN USE DYNAMIC ALLOCATION */
 int major=0;
-//Especifica parâmetros do módulo. variável, tipo e permissões usadas no sysfs
-//S_IRUGO - Permissão de leitura para todos os usuários
+//MODULE PARAM
+//S_IRUGO - PERMISSION OF READ FOR ALL USERS
 module_param(major, int, S_IRUGO);
 MODULE_PARM_DESC(major, "device major number");
 
 struct my_dev {
 	char data[MAX_DSIZE+1];
 	size_t size;              
-        struct semaphore sem;     /* Para implementar exclusão mútua */
-	struct cdev cdev;
-	struct class *class;
-	struct device *device;
+    struct semaphore sem;     /* mutual exclusion */
+	struct cdev      cdev;
+	struct class     *class;
+	struct device    *device;
 } *temp_dev;
 
 //----------------------------------------------------------------------------------------------
 //LINKED LIST
 struct stlista {
-	int value;
-	int count_len;
-	char c[BUFFER_LENGTH];
+	int    value;
+	char   c[BUFFER_LENGTH];
 	struct list_head list_H;
 };
 //INITIALIZATION
 LIST_HEAD(my_list);
-
 //----------------------------------------------------------------------------------------------
 
-/* Declaração das funções SORTLIST.c  */
-static int temp_open(struct inode *inode, struct file *filp);
-static int temp_release(struct inode *inode, struct file *filp);
-static ssize_t temp_read(struct file *filp,  char *buf, size_t count, loff_t *f_pos);
-static ssize_t temp_write(struct file *filp, const char *buf, size_t count, loff_t *f_pos);
-int temp_init(void);
-void temp_exit(void);
+/* STATEMENT OF FUNCTIONS  */
+static int sort_open(struct inode *inode, struct file *filp);
+static int sort_release(struct inode *inode, struct file *filp);
+static ssize_t sort_read(struct file *filp,  char *buf, size_t count, loff_t *f_pos);
+static ssize_t sort_write(struct file *filp, const char *buf, size_t count, loff_t *f_pos);
+int sort_init(void);
+void sort_exit(void);
 
-static int compare(const void *a, const void *b); /* Funcao para comparar no sort */
-
-/* Declaração das funções init and exit */
-module_init(temp_init);
-module_exit(temp_exit);
+/* STATEMENT OF FUNCTIONS init AND exit */
+module_init(sort_init);
+module_exit(sort_exit);
 
 static struct file_operations temp_fops = {
-	.owner = THIS_MODULE,
-	.read = temp_read,
-	.write = temp_write,
-	.open = temp_open,
-	.release = temp_release
+	.owner   = THIS_MODULE,
+	.read    = sort_read,
+	.write   = sort_write,
+	.open    = sort_open,
+	.release = sort_release
 };
 
-int temp_init(void) {
+int sort_init(void) {
 	int rv;
-	//Macro para converter major e minor number do tipo dev_t
+	//MACRO TO CONVERT MAJOR AND MINOR NUMBET TO dev_t
 	dev_t devno = MKDEV(major, 0);
 
 	if(major) {
-		//Registra o device com major devno 
-		//e 1 é a quantidade de devices, 
-		//sortlist é o nome do device
+		//REGISTER DEVICE WITH MAJOT DEVNO 
+		//1 = QUANTITY OF DEVICES, 
+		//sortlist IS A NAME OF THE DEVICE
 		rv = register_chrdev_region(devno, 1, DEVICE_NAME);
 		if(rv < 0){
 			printk(KERN_WARNING "Can't use the major number %d; try atomatic allocation...\n", major);
@@ -125,39 +109,31 @@ int temp_init(void) {
 		}
 	}
 	else {
-        //Aloca um major dinamicamente para o device e registra-o. 
-		//0 - minor number 1 - numero de devices
+        //DYNAMIC ALLOCATION DEVICE AND REGISTER. 
+		//0 - minor number 1 - number of devices
 		rv = alloc_chrdev_region(&devno, 0, 1, DEVICE_NAME);
 		major = MAJOR(devno);
 	}
 
 	if(rv < 0) return rv;
-    //Alocação de memória fisica para colocar a estrutura do device. 
-	//GFP_KERNEL bloqueia o processo se a memória 
-	//não está imediatamente disponível
+    //PHYSICAL MEMORY ALLOCATION. 
+	//GFP_KERNEL = BLOCK MEMORY PROCESS 
 	temp_dev = kmalloc(sizeof(struct my_dev), GFP_KERNEL);
 	if(temp_dev == NULL){
 		rv = -ENOMEM;
 		unregister_chrdev_region(devno, 1);
 		return rv;
 	}
-    //Inicializa a memória alocada com kmalloc
+    //initialize alocated memory with kmalloc
 	memset(temp_dev, 0, sizeof(struct my_dev));
-	//cdev - Estrutura para dispositivos de caractere
-	//Inicializa a estrutura cdev do dispositivo
-	//temp_fops - especifica as funções que implementam as
-	//operações sobre o arquivo de device a serem registradas no VFS
 	cdev_init(&temp_dev->cdev, &temp_fops);
 	temp_dev->cdev.owner = THIS_MODULE;
 	temp_dev->size = MAX_DSIZE;
 	sema_init (&temp_dev->sem, 1);
-	//Entrega a estrutura cdev ao VFS
+	//hand over struct cdev to VSF
 	rv = cdev_add (&temp_dev->cdev, devno, 1);
 	if (rv) printk(KERN_WARNING "Error %d adding device sortlist", rv);
-    //UDEV- Deamon responsável por criar o arquivo de device 
-	//a partir das informações fornecidas
-	
-	//Cria uma classe para uso em device_create
+	//create a class to use device_create
 	temp_dev->class = class_create(THIS_MODULE, DEVICE_NAME);
 	if(IS_ERR(temp_dev->class)) {
 		cdev_del(&temp_dev->cdev);
@@ -166,7 +142,7 @@ int temp_init(void) {
 		rv = -ENOMEM;
 		return rv;
 	}
-    //Cria arquivo de device em /dev automaticamente
+    //create device file /dev automatically
 	temp_dev->device = device_create(temp_dev->class, NULL,
 		MKDEV(major, 0), "%s", DEVICE_NAME);
 	if(IS_ERR(temp_dev->device)){
@@ -184,7 +160,7 @@ int temp_init(void) {
 	return SUCCESS;
 }
 
-void temp_exit(void) {
+void sort_exit(void) {
 	device_destroy(temp_dev->class, MKDEV(major, 0));
 	class_destroy(temp_dev->class);
 	cdev_del(&temp_dev->cdev); 
@@ -193,30 +169,33 @@ void temp_exit(void) {
 	printk(KERN_WARNING "Good bye from Template Module\n");
 }
 
-static int temp_open(struct inode *inode, struct file *filp) {
-	printk(KERN_DEBUG "[SORTLIST]: Aberto");
+static int sort_open(struct inode *inode, struct file *filp) {
+	printk(KERN_DEBUG "[SORTLIST]: OPENING");
 	return SUCCESS;
 }
-static int temp_release(struct inode *inode, struct file *filp) {
-	printk(KERN_DEBUG "[SORTLIST]: Fechado");
+static int sort_release(struct inode *inode, struct file *filp) {
+	printk(KERN_DEBUG "[SORTLIST]: CLOSING");
 	return SUCCESS;
 }
 
-static ssize_t temp_read(struct file *filp,  char *buf, size_t count, loff_t *f_pos) { 
-  //printk(KERN_DEBUG "[SORTLIST]: Executou o read %n\n\n", msg_p);
+static ssize_t sort_read(struct file *filp,  char *buf, size_t count, loff_t *f_pos) { 
+  	printk(KERN_DEBUG "[SORTLIST]: RUM READ() FUNCTION\n\n");
 	int rv=0;
 	int len = 0;
 	char msg[MAX_DSIZE];
 	if (*f_pos >= SIZE)
 		return rv;
-	if (down_interruptible (&temp_dev->sem))//Inicio da regiao critica
+	if (down_interruptible (&temp_dev->sem))//star critical region
 		return -ERESTARTSYS;		
-	if (*f_pos + count > MAX_DSIZE)//Verifica se ainda tem dados para ler
-		count = MAX_DSIZE - *f_pos;//Ajusta count 
+	if (*f_pos + count > MAX_DSIZE)//verificate whether still have data to read
+		count = MAX_DSIZE - *f_pos; 
 
 	printk(KERN_INFO "READ: ");
 	struct stlista *list = kmalloc(sizeof(struct stlista),GFP_KERNEL);
 	list_for_each_entry(list, &my_list, list_H) {
+		//CREATE A CHAR[] AND FILL WITH ONLY VALID CHARACTERS
+		//READ UNTIL '\0'
+		//ADD SPACE
 		int i = 0;
 		char c[strlen(list->c)];
 		c[i] = list->c[i];
@@ -228,7 +207,7 @@ static ssize_t temp_read(struct file *filp,  char *buf, size_t count, loff_t *f_
 		strcat(msg, " ");
 		len+=strlen(c);
 		len+=strlen(" ");
-		printk(KERN_INFO "READ 1: %s", c);
+		printk(KERN_INFO "VALUE READ: %s", c);
 	}
 
 	if (copy_to_user (buf, msg, len)) {
@@ -237,26 +216,24 @@ static ssize_t temp_read(struct file *filp,  char *buf, size_t count, loff_t *f_
 	}
 
 	*f_pos+=len;
-	up (&temp_dev->sem);
+	up (&temp_dev->sem); //end of critical region
 	return len;
 	wrap_up:
 	up (&temp_dev->sem);
 	return rv;
 }
 
-static ssize_t temp_write( struct file *filp, const char *buf,size_t count, loff_t *pos) {  
+static ssize_t sort_write( struct file *filp, const char *buf,size_t count, loff_t *pos) {  
 	printk(KERN_DEBUG "[SORTLIST]: Executou o write");
 
 	unsigned long long res;
 
-	//DOWN no semaforo
-	if (down_interruptible (&temp_dev->sem))
+	if (down_interruptible (&temp_dev->sem))//star critical region
 		return -ERESTARTSYS;
-	//regiao critica
-	if(kstrtoull_from_user(buf, count, 10, &res))
+	if(kstrtoull_from_user(buf, count, 10, &res))//READ A VALUE AS A INT 
 		return -EINVAL;
 
-	up (&temp_dev->sem);
+	up (&temp_dev->sem);//end of critical region
 
 	struct stlista *list = kmalloc(sizeof(struct stlista),GFP_KERNEL);
 	struct stlista *listNEW = kmalloc(sizeof(struct stlista),GFP_KERNEL);
@@ -276,74 +253,43 @@ static ssize_t temp_write( struct file *filp, const char *buf,size_t count, loff
 	else{
 		list_for_each_entry(list, &my_list, list_H) {
 			printk(KERN_INFO "VALOR DE I: %d e VALOR DE QTDNO: %d", i, qtdNo);
-			//FISRT
+			//inserts at the beginning
 			if (i == 1)
 			{
-				printk(KERN_INFO "AQUI 01");
 				if ((int)res <= list->value)
 				{
-					printk(KERN_INFO "AQUI1");
 					list_add(&listNEW->list_H,&my_list);
-					//printk(KERN_INFO "val = %d\n", list->value);
 					break;
 				}
 			}
-			//END
+			//inserts at the end
 			else if (i == qtdNo)
 			{
-				printk(KERN_INFO "AQUI 02");
 				if ((int)res >= list->value)
 				{
-					printk(KERN_INFO "AQUI2");
 					list_add_tail(&listNEW->list_H,&my_list);
 					break;
 				}
 				else{
-					printk(KERN_INFO "AQUI3");
 					list_add_tail(&listNEW->list_H,&list->list_H);
-					//printk(KERN_INFO "val = %d\n", list->value);
 					break;
 				}
 			}
-			//MID
+			//insert in the mid
 			else if ((int)res <= list->value)
 			{
-				printk(KERN_INFO "AQUI4");
-				//listNEW->next aponta para o listAtual;
-				//listNEW->list_H.next = list;
-				//listNEW->prev aponta para o listAnterio;
-				//listNEW->list_H.prev = list->list_H->prev->list_H;
-				//listanterio->prox aponta para o listNEW;
-				//list->list_H.prev->list_H.prox = listNEW->list_H;
-				//listAtual->prev aponta para o listNEW;
-				//ist->list_H.prev = listNEW->list_H;
 				list_add_tail(&listNEW->list_H,&list->list_H);
-				//printk(KERN_INFO "val = %d\n", list->value);
 				break;
 			}
 			i++;
 		}
 		list_for_each_entry(list, &my_list, list_H) {
-			// msg[w_pos] = list->value;
-			// lenght[w_pos] = list->count_len;
 			printk(KERN_INFO "val = %d\n", list->value);
-			//printk(KERN_INFO "CARACTERE = %s\n", list->c);
 			printk(KERN_INFO "SIZE = %d\n", strlen(list->c));
-			// w_pos++;
 		}
 	}	
 	qtdNo++;
 	SIZE+=strlen(listNEW->c);
 	SIZE+=strlen(" ");
-	all_count+=count;
 	return SIZE;
 }
-
-
-// static int compare(const void *a, const void *b){
-// 	char ca = *(const char*)(a);
-// 	char cb = *(const char*)(b);
-// 	if(ca < cb) return -1;
-// 	if(ca > cb) return 1;
-// 	return 0;
-// }
