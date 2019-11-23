@@ -192,6 +192,8 @@ static ssize_t sort_read(struct file *filp,  char *buf, size_t count, loff_t *f_
 
 	printk(KERN_INFO "READ: ");
 	struct stlista *list = kmalloc(sizeof(struct stlista),GFP_KERNEL);
+	// strcat(msg, "\n");
+	// len+=strlen("\n");
 	list_for_each_entry(list, &my_list, list_H) {
 		//CREATE A CHAR[] AND FILL WITH ONLY VALID CHARACTERS
 		//READ UNTIL '\0'
@@ -210,6 +212,9 @@ static ssize_t sort_read(struct file *filp,  char *buf, size_t count, loff_t *f_
 		printk(KERN_INFO "VALUE READ: %s", c);
 	}
 
+	strcat(msg, "\n");
+	len+=strlen("\n");	
+	
 	if (copy_to_user (buf, msg, len)) {
 		rv = -EFAULT;
 		goto wrap_up;
