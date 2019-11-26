@@ -22,7 +22,7 @@ echo -n 4 >/dev/sortlist
 
 After insert your values to test, type: ```cat /dev/sortlist```
 
-The result to up entering is:
+The result of the above entry is:
 
 ```bash
 cat /dev/sortlist
