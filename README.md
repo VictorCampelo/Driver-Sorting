@@ -2,10 +2,13 @@
 Receive n numbers and return a sorted list with this values
 ## Installation
 Just execute shell script "commands.sh $1".
+
 $1 is file name that is contains the code of driver
+
 type: ```./commands.sh sortlist```
 ## Usage
-To insert values to kernel space, type: ```bash echo -n "value" > /dev/sortlist```
+To insert values to kernel space, type: ```echo -n "value" > /dev/sortlist``` 
+
 Ex.:
 ```bash
 echo -n 3 >/dev/sortlist
@@ -17,8 +20,10 @@ echo -n 44 >/dev/sortlist
 echo -n 4 >/dev/sortlist
 ```
 
-After insert your values to test, type: cat /dev/sortlist
+After insert your values to test, type: ```cat /dev/sortlist```
+
 The result to up entering is:
+
 ```bash
 cat /dev/sortlist
 
@@ -35,8 +40,6 @@ Pull requests are welcome. For major changes, please open an issue first to disc
 5. Submit a pull request :D
 
 Please make sure to update tests as appropriate.
-## History
-TODO: Write history
-## Credits
-TODO: Write credits
+
 ## License
+[MIT](https://choosealicense.com/licenses/mit/)
